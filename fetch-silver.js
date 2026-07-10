@@ -64,54 +64,77 @@ async function fetchFenegosida() {
   throw new Error('All fetch strategies failed.');
 }
 
+// ── Strip HTML tags/scripts/styles down to plain text ──
+// Key fix: the old parser depended on an exact "* tola" marker string and
+// raw <b> tag positions, both of which are extremely sensitive to the
+// site's markup. Parsing plain, tag-free text instead makes this resistant
+// to markup changes as long as the visible wording stays roughly the same.
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#2352;/g, '\u0930')   // रु rendered as numeric HTML entities, just in case
+    .replace(/&#2369;/g, '\u0941')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Parse silver price (per tola) from fenegosida.org ──
 //
-// Page structure:
-//   * gms   ← first tab
-//   * tola  ← second tab (we want this section)
-//
-//   tola section <b> values in order:
-//   [0] = Fine Gold   e.g. 294000
-//   [1] = Tejabi Gold e.g. 0
-//   [2] = Silver      e.g. 4830  ← THIS
-//
+// Page lists FINE GOLD, TEJABI GOLD, SILVER, each with a "per 10 grm" row
+// and a "per 1 tola" row. We want SILVER's "per 1 tola" figure — anchor
+// directly on the phrase "SILVER ... per 1 tola" (not "per 10 grm"), then
+// grab the रु/Nrs-prefixed price shortly after it.
 function parseSilverPrice(html) {
-  // Split HTML at "* tola" marker to get only the tola section
-  const tolaSplit = html.split(/\*\s*tola/i);
-  const tolaSection = tolaSplit.length > 1 ? tolaSplit[tolaSplit.length - 1] : null;
+  const text = stripHtml(html);
 
-  if (tolaSection) {
-    const bTags = [...tolaSection.matchAll(/<b>(\d+)<\/b>/g)].map(m => parseInt(m[1]));
-    console.log('📊 Tola section <b> values:', bTags);
-    // index [2] = silver per tola
-    if (bTags.length >= 3) {
-      const price = bTags[2];
+  // Primary strategy: anchor on "SILVER" immediately followed by "per 1 tola"
+  const m = text.match(/SILVER\s*per\s*1\s*tola[\s\S]{0,200}?(?:[\u0930\u0941]+|Nrs)\s*\*{0,2}(\d{3,6})(?:\.\d+)?\*{0,2}/i);
+  if (m) {
+    const price = parseInt(m[1], 10);
+    if (price > 500 && price < 50000) {
+      console.log('✅ Anchored SILVER per-1-tola price found:', price);
+      return price;
+    }
+  }
+
+  // Fallback 1: same anchor but with a wider window, in case more text sits between
+  const wide = text.match(/SILVER\s*per\s*1\s*tola[\s\S]{0,600}?(?:[\u0930\u0941]+|Nrs)\s*\*{0,2}(\d{3,6})(?:\.\d+)?\*{0,2}/i);
+  if (wide) {
+    const price = parseInt(wide[1], 10);
+    if (price > 500 && price < 50000) {
+      console.log('⚠️  Wide-window SILVER per-1-tola price found:', price);
+      return price;
+    }
+  }
+
+  // Fallback 2: "per 1 tola" occurs 3x on the page (Fine Gold, Tejabi, Silver, in that
+  // order) — Silver is always the third occurrence, so grab the price right after it.
+  const tolaMatches = [...text.matchAll(/per\s*1\s*tola/gi)];
+  if (tolaMatches.length >= 3) {
+    const idx = tolaMatches[2].index + tolaMatches[2][0].length;
+    const window = text.slice(idx, idx + 200);
+    const wm = window.match(/(?:[\u0930\u0941]+|Nrs)\s*\*{0,2}(\d{3,6})(?:\.\d+)?\*{0,2}/i);
+    if (wm) {
+      const price = parseInt(wm[1], 10);
       if (price > 500 && price < 50000) {
-        console.log('✅ Silver per tola (index 2):', price);
+        console.log('⚠️  Third per-1-tola occurrence price found:', price);
         return price;
       }
     }
   }
 
-  // Fallback 1: rate-silver div — grab LAST <b> match (tola comes after gms)
-  const allSilverMatches = [...html.matchAll(/SILVER[\s\S]{0,300}?<b>(\d+)<\/b>/gi)];
-  if (allSilverMatches.length > 0) {
-    // Last occurrence = tola price
-    const price = parseInt(allSilverMatches[allSilverMatches.length - 1][1]);
-    if (price > 500 && price < 50000) {
-      console.log('⚠️  Silver fallback (last SILVER match):', price);
-      return price;
-    }
-  }
-
-  // Fallback 2: any 4-digit number in silver range after "tola" keyword
-  const tolaBlock = html.match(/tola[\s\S]{0,1000}/i);
+  // Fallback 3: any 3-6 digit number in silver range after the last "tola" keyword
+  const tolaBlock = text.match(/tola[\s\S]{0,1000}$/i);
   if (tolaBlock) {
-    const nums = [...tolaBlock[0].matchAll(/\b(\d{4,5})\b/g)].map(m => parseInt(m[1]));
+    const nums = [...tolaBlock[0].matchAll(/\b(\d{3,5})(?:\.\d+)?\b/g)].map(m => parseInt(m[1]));
     const valid = nums.filter(n => n > 500 && n < 50000);
     if (valid.length) {
-      console.log('⚠️  Silver tola block fallback:', valid[0]);
-      return valid[0];
+      console.log('⚠️  Silver tola block fallback:', valid[valid.length - 1]);
+      return valid[valid.length - 1];
     }
   }
 
