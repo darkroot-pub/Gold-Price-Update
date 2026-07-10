@@ -38,47 +38,76 @@ function get(url) {
   });
 }
 
+// ── Strip HTML tags/scripts/styles down to plain text ──
+// This is the key fix: the old parser regex'd against raw HTML, so any
+// markup change (new wrapper divs, ad widgets, etc.) between a label like
+// "per 1 tola" and its price could push them further apart in character
+// distance than the old {0,100}/{0,300} windows allowed — even though
+// they're right next to each other visually. Stripping tags first makes
+// parsing resistant to that kind of structural change.
+function stripHtml(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&#2352;/g, '\u0930')   // रु rendered as numeric HTML entities, just in case
+    .replace(/&#2369;/g, '\u0941')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 // ── Parse gold price from fenegosida.org ──
+// Page lists FINE GOLD, TEJABI GOLD, SILVER — each with a "per 10 grm" row
+// and a "per 1 tola" row. We want the FINE GOLD "per 1 tola" figure, and
+// "per 1 tola" appears three times on the page (fine/tejabi/silver) — the
+// FIRST occurrence is always the FINE GOLD one, so we anchor on that.
 function parseGoldPrice(html) {
-  // Primary: "FINE GOLD (9999) per 1 tola रु 309400"
-  // HTML pattern: रु **309400**
-  const fine = html.match(/FINE GOLD[\s\S]{0,300}?per 1 tola[\s\S]{0,100}?[\u0930\u0941\s\*]+([\d]+)/);
+  const text = stripHtml(html);
+
+  // Primary strategy: anchor on the first "per 1 tola" (always FINE GOLD's row),
+  // then look for a रु/Nrs-prefixed price shortly after it.
+  const tolaIdx = text.search(/per\s*1\s*tola/i);
+  if (tolaIdx !== -1) {
+    const window = text.slice(tolaIdx, tolaIdx + 200);
+    const m = window.match(/(?:[\u0930\u0941]+|Nrs)\s*\*{0,2}(\d{4,7})(?:\.\d+)?\*{0,2}/i);
+    if (m) {
+      const price = parseInt(m[1], 10);
+      if (price > 100000 && price < 600000) {
+        console.log('✅ Anchored per-1-tola price found:', price);
+        return price;
+      }
+    }
+  }
+
+  // Fallback 1: explicit "FINE GOLD (9999)" label followed by "per 1 tola" within a wide window
+  const fine = text.match(/FINE GOLD[\s\S]{0,600}?per\s*1\s*tola[\s\S]{0,200}?(?:[\u0930\u0941]+|Nrs)\s*\*{0,2}(\d{4,7})/i);
   if (fine) {
-    const price = parseInt(fine[1]);
+    const price = parseInt(fine[1], 10);
     if (price > 100000 && price < 600000) {
       console.log('✅ Fine Gold (9999) per tola found:', price);
       return price;
     }
   }
 
-  // Strategy 2: रु **XXXXXX** pattern (Nepali rupee symbol before price)
-  const ruMatches = [...html.matchAll(/[\u0930\u0941]\s*\*{0,2}(\d{5,7})\*{0,2}/g)];
+  // Fallback 2: any रु-prefixed 5-7 digit number in the gold price range
+  const ruMatches = [...text.matchAll(/[\u0930\u0941]+\s*\*{0,2}(\d{5,7})\*{0,2}/g)];
   for (const m of ruMatches) {
-    const price = parseInt(m[1]);
+    const price = parseInt(m[1], 10);
     if (price > 100000 && price < 600000) {
       console.log('✅ रु pattern price found:', price);
       return price;
     }
   }
 
-  // Strategy 3: Nrs XXXXXX pattern
-  const nrsMatches = [...html.matchAll(/Nrs\s*\*{0,2}(\d{5,7})\*{0,2}/gi)];
+  // Fallback 3: any Nrs-prefixed 5-7 digit number in range
+  const nrsMatches = [...text.matchAll(/Nrs\s*\*{0,2}(\d{5,7})\*{0,2}/gi)];
   for (const m of nrsMatches) {
-    const price = parseInt(m[1]);
+    const price = parseInt(m[1], 10);
     if (price > 100000 && price < 600000) {
       console.log('✅ Nrs pattern price found:', price);
       return price;
-    }
-  }
-
-  // Strategy 4: any 6-digit number in gold range after "tola"
-  const tolaBlock = html.match(/per 1 tola[\s\S]{0,200}/i);
-  if (tolaBlock) {
-    const nums = [...tolaBlock[0].matchAll(/(\d{6})/g)].map(m => parseInt(m[1]));
-    const valid = nums.filter(n => n > 100000 && n < 600000);
-    if (valid.length) {
-      console.log('⚠️  Tola block fallback:', valid[0]);
-      return valid[0];
     }
   }
 
