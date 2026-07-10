@@ -34,4 +34,4 @@ jobs:
         run: node fetch-silver.js
 
       - name: Log completion
-        run: echo "✅ Gold & Silver updated at $(date -u)"
+        run: echo "✅ Gold🪙 & Silver updated at $(date -u)"
