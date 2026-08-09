@@ -211,16 +211,29 @@ def source_kokil():
 
     text = strip_html(html)
 
-    m = re.search(
-        r"Silver.{0,80}?Rs\.?\s*([\d,]{3,7})\s*per\s*tola",
+    # Anchor on "Pure Silver" specifically — not just "Silver", which also
+    # appears in the page's "Gold & Silver Rate" title far above the real
+    # data block and would otherwise match the wrong (gold) price.
+    candidates = list(re.finditer(
+        r"Pure Silver.{0,80}?Rs\.?\s*([\d,]{3,7})\s*per\s*tola",
         text, flags=re.I | re.S,
-    )
-    if m:
+    ))
+    # Fallback anchor in case the "Pure Silver" wording ever changes.
+    if not candidates:
+        candidates = list(re.finditer(
+            r"Silver.{0,80}?Rs\.?\s*([\d,]{3,7})\s*per\s*tola",
+            text, flags=re.I | re.S,
+        ))
+
+    # Check every match in order, not just the first — an early match that
+    # falls outside the plausible range shouldn't stop us from trying the
+    # rest of the matches further down the page.
+    for m in candidates:
         price = int(m.group(1).replace(",", ""))
         if in_range(price):
             print(f"   ✅ Silver per-tola price found: {price}")
             return price
-        print(f"   ⚠️  parsed value {price} out of plausible range, discarding")
+        print(f"   ⚠️  candidate {price} out of plausible range, trying next match")
 
     print("   ⚠️  no price found in this response")
     return None
