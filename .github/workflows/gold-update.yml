@@ -16,22 +16,22 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          node-version: '20'
+          python-version: '3.12'
 
       - name: Fetch gold price and update Firebase
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-        run: node fetch_gold.py
+        run: python fetch_gold.py
 
       - name: Fetch silver price and update Firebase
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-        run: node fetch_silver.py
+        run: python fetch_silver.py
 
       - name: Log completion
         run: echo "✅ Gold🪙 & Silver updated at $(date -u)"
