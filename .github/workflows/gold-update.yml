@@ -25,13 +25,13 @@ jobs:
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-        run: node fetch-gold.js
+        run: node fetch_gold.py
 
       - name: Fetch silver price and update Firebase
         env:
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
           FIREBASE_API_KEY: ${{ secrets.FIREBASE_API_KEY }}
-        run: node fetch-silver.js
+        run: node fetch_silver.py
 
       - name: Log completion
         run: echo "✅ Gold🪙 & Silver updated at $(date -u)"
