@@ -2,7 +2,7 @@ name: Daily Gold & Silver Price Update
 
 on:
   schedule:
-    - cron: '25 5 * * *'   # 11:10 AM NPT
+    - cron: '45 3 * * *'   # 9:30 AM NPT
 
   workflow_dispatch:
 
